@@ -359,7 +359,7 @@ for i, (l, r) in enumerate(zip(m_out, opt_out)):
 
     # Run rendered code in a subprocess as a smoke test
     subprocess.run(
-        ["python", "-c", rendered],
+        ["python3", "-c", rendered],
         check=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -432,7 +432,7 @@ for i, (l, r) in enumerate(zip(m_out, opt_out)):
 
     # Run rendered code in a subprocess as a smoke test
     subprocess.run(
-        ["python", "-c", rendered],
+        ["python3", "-c", rendered],
         check=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,

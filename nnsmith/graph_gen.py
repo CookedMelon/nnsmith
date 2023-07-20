@@ -494,28 +494,33 @@ class SymbolicGen(BaseGen):
         return cres
 
     def try_forward_insert_at(self, node: AbsOpBase, input_vars: List[str]) -> bool:
+        # 将输入变量转换为张量
         itensors = [self.ir.vars[vname] for vname in input_vars]
+        # 获取该节点的约束条件
         constraints = node.checked_requires(itensors)
-
+        # 日志
         if SMT_LOG.getEffectiveLevel() <= logging.DEBUG:
             SMT_LOG.debug(f"---> Trying to solve: {node} ~ {constraints}")
 
         # make a copy
+        # 对输入张量进行类型转换
         otensors = node.checked_type_transfer(itensors)
 
+        # 对每个输出张量进行检查，如果其大于零则添加到约束条件中
         for aten in otensors:
             for c in aten.gt_zero():
                 constraints.append(c)
 
         # limit output tensor size
+        # 限制输出张量的大小
         for aten in otensors:
             constraints.extend(self.tensor_type_constraints(aten))
-
+        # 使用Z3求解器检查这些约束条件是否满足
         check_res = self.check_sat(*constraints)
 
         if check_res != z3.sat:
             return False
-
+        # 如果结果满足，那么将这些约束条件添加到求解器中
         for c in constraints:
             self.assume(c)
 
@@ -523,10 +528,10 @@ class SymbolicGen(BaseGen):
             MGEN_LOG.debug(f">> Forward insert: {node}")
             MGEN_LOG.debug(f"\tinputs:  {itensors}")
             MGEN_LOG.debug(f"\toutputs: {otensors}")
-
+        # 绑定输入和输出张量
         node.bind_input_like(itensors)
         node.bind_output_like(otensors)
-
+        # 在模型中插入这个节点
         self.forward_insert_node(node, input_vars)
         return True
 
@@ -538,7 +543,9 @@ class SymbolicGen(BaseGen):
         # S2 - create X: X can be
         #                   - a new placeholder (fallback)
         #                   - an existing alive shape
+        # S2 - 创建X：X可以是一个新的占位符（后备）或者是一个现有的可用shape
 
+        # 将占位符变量名转化为张量
         otensors = [self.ir.vars[name] for name in phvars]
 
         # S2.2: try to reuse some existing outputs;
@@ -552,47 +559,57 @@ class SymbolicGen(BaseGen):
         #     n_reuse -= 1
 
         # S2.2: reusing outputs failed. as a fallback, promote all free vars to placeholders.
+
+        # S2.2: 尝试复用一些现有的输出
+        # TODO: 允许复用现有的可用形状
+
+        # S2.2: 复用输出失败。作为后备方案，将所有自由变量提升为占位符。
         phs_as_op_inputs: List[Placeholder] = []
         constraints = []
+        # 最输入的rank和数据类型进行推断
         for rank, dtype in node.deduct_inp_ranks_and_dtype(otensors):
             # oversample rank 4 tensors as they may be more important
+            # 过采样rank 4张量，因为它们可能更重要
             ph = self.make_symbolic_placeholder(
                 rank if rank != -1 else self.random_rank(), dtype=dtype
             )
             phs_as_op_inputs.append(ph)
             constraints.extend(ph.ttype.gt_zero())
             constraints.extend(self.tensor_type_constraints(ph.ttype))
-
+        # 获取输入张量的类型
         itensors = [p.ttype for p in phs_as_op_inputs]
+        # 将节点要求的约束添加到约束列表中
         constraints.extend(node.checked_requires(itensors))
+        # 对输入张量的类型进行推断
         inferred_otensors = node.checked_type_transfer(itensors)
-
+        # 遍历推断出的张量，对其shape进行检查，如果shape等于输出张量的shape并且大于0，就将其添加到约束中
         for i, shape in enumerate(inferred_otensors):
             constraints.extend(shape.eq(otensors[i]))
             constraints.extend(shape.gt_zero())
-
+        # 检查约束是否满足
         check_res = self.check_sat(*constraints)
-
+        # 如果约束不满足，则返回False
         if check_res != z3.sat:
             return False
 
         if MGEN_LOG.getEffectiveLevel() <= logging.DEBUG:
             MGEN_LOG.debug(f">> Backward insert: {node}")
             MGEN_LOG.debug(f"\tinputs:  {phs_as_op_inputs}")
-
+        # 将满足的约束添加到求解器中
         for c in constraints:
             self.assume(c)
 
         # succ.
+        # 记录输入变量的名称
         input_vars = []
-
+        # 对每个作为操作输入的占位符，在模型中向前插入一个节点，并记录其返回的变量名
         for ph in phs_as_op_inputs:
             inst = self.forward_insert_node(ph, [])
             input_vars.append(inst.retval())
-
+        # 绑定输入和输出张量
         node.bind_input_like(itensors)
         node.bind_output_like(inferred_otensors)
-
+        # 在模型中向后插入节点
         self.backward_insert_node(node, input_vars, phvars)
 
         return True

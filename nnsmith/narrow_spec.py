@@ -43,7 +43,8 @@ from nnsmith.gir import GraphIR, InstExpr
 from nnsmith.logging import DTEST_LOG
 from nnsmith.materialize import Model, TestCase
 
-NNSMITH_CACHE_DIR = user_cache_dir(f"nnsmith-{__version__}")
+# NNSMITH_CACHE_DIR = user_cache_dir(f"nnsmith-{__version__}")
+NNSMITH_CACHE_DIR = user_cache_dir(f"nnsmith")
 
 
 def get_cache_name(model_cls: Type[Model], factory: BackendFactory, grad: bool) -> str:
