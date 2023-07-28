@@ -6,7 +6,7 @@ from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
 from types import FunctionType
 from typing import Type
-
+# 导入Hydra库（用于创建可配置的Python应用）和omegaconf库（用于处理配置文件）
 import hydra
 from omegaconf import DictConfig
 
@@ -28,35 +28,37 @@ from nnsmith.util import (
     set_seed,
 )
 
-
+# 用于收集测试状态的类
 class StatusCollect:
     def __init__(self, root):
-        self.root = Path(root)
-        mkdir(self.root)
-        self.n_testcases = 0
-        self.n_bugs = 0
-        self.n_fail_make_test = 0
+        self.root = Path(root) # 设置测试状态的根目录
+        mkdir(self.root) # 确保该目录存在
+        self.n_testcases = 0 # 初始化测试用例数为0
+        self.n_bugs = 0 # 初始化发现的bug数为0
+        self.n_fail_make_test = 0 # 初始化无法生成测试用例的次数为0
 
     def get_next_bug_path(self):
         return self.root / f"bug-{NNSMITH_BUG_PATTERN_TOKEN}-{self.n_bugs}"
 
-
+# 定义模糊测试循环的类
 class FuzzingLoop:
     def __init__(
         self,
         cfg: DictConfig,
     ):
-        self.cfg = cfg
+        self.cfg = cfg # 存储配置信息
 
         # FIXME(@ganler): well-form the fix or report to TF
         # Dirty fix for TFLite on CUDA-enabled systems.
         # If CUDA is not needed, disable them all.
+        # 对于特定的后端类型和对比目标，进行特定的环境设置
         cmpwith = cfg["cmp"]["with"]
+        # 对于TFLite后端且CUDA可用时，将CUDA设备设置为不可见
         if cfg["backend"]["type"] == "tflite" and (
             cmpwith is None or cmpwith["target"] != "cuda"
         ):
             os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
-
+        # 设置参数是否进行崩溃安全的测试
         if (
             cfg["fuzz"]["crash_safe"]
             and cfg["backend"]["type"] == "xla"
@@ -88,6 +90,7 @@ class FuzzingLoop:
 
         self.filters = []
         # add filters.
+        # 根据配置信息添加过滤器
         filter_types = (
             [cfg["filter"]["type"]]
             if isinstance(cfg["filter"]["type"], str)
@@ -125,7 +128,7 @@ class FuzzingLoop:
                 FUZZ_LOG.info(f"Filter enabled: {filter}")
 
         self.status = StatusCollect(cfg["fuzz"]["root"])
-
+        # 初始化后端工厂
         self.factory = BackendFactory.init(
             cfg["backend"]["type"],
             ad=cfg["ad"]["type"],
@@ -133,13 +136,13 @@ class FuzzingLoop:
             optmax=cfg["backend"]["optmax"],
             parse_name=True,
         )
-
+        # 初始化模型类型
         model_cfg = self.cfg["model"]
         self.ModelType = Model.init(
             model_cfg["type"], backend_target=cfg["backend"]["target"]
         )
         self.ModelType.add_seed_setter()
-
+        # 初始化操作集
         self.opset = op_filter(
             auto_opset(
                 self.ModelType,
@@ -153,14 +156,14 @@ class FuzzingLoop:
 
         hijack_patch_requires(cfg["mgen"]["patch_requires"])
         activate_ext(opset=self.opset, factory=self.factory)
-
+        # 设置随机种子
         seed = cfg["fuzz"]["seed"] or random.getrandbits(32)
         set_seed(seed)
 
         FUZZ_LOG.info(
             f"Test success info supressed -- only showing logs for failed tests"
         )
-
+        # 设置测试超时时间和测试用例保存路径
         # Time budget checking.
         self.timeout_s = self.cfg["fuzz"]["time"]
         if isinstance(self.timeout_s, str):
@@ -175,6 +178,9 @@ class FuzzingLoop:
             mkdir(self.save_test)
 
     def make_testcase(self, seed) -> TestCase:
+        # 生成一个测试用例
+        # 首先使用model_gen函数生成一个模型的中间表示，然后根据这个中间表示生成模型
+        # 调整模型权重并设置梯度检查，然后生成预期输出
         mgen_cfg = self.cfg["mgen"]
         gen = model_gen(
             opset=self.opset,
@@ -198,6 +204,8 @@ class FuzzingLoop:
         return TestCase(model, oracle)
 
     def validate_and_report(self, testcase: TestCase) -> bool:
+        # 验证一个测试用例并报告结果
+        # 如果测试用例未通过验证，增加bug数并返回False
         if not verify_testcase(
             self.cfg["cmp"],
             factory=self.factory,
@@ -212,6 +220,11 @@ class FuzzingLoop:
         return True
 
     def run(self):
+        # 运行模糊测试
+        # 在超时时间内，进行循环，每次生成一个测试用例并进行验证
+        # 如果设置了保存测试用例，会将每个测试用例保存到文件
+        # 打印每次循环的时间统计信息
+        # 循环结束后，打印总的测试用例数，发现的bug数，无法生成的测试用例数
         start_time = time.time()
         while time.time() - start_time < self.timeout_s:
             seed = random.getrandbits(32)
@@ -257,11 +270,11 @@ class FuzzingLoop:
         FUZZ_LOG.info(f"Total {self.status.n_bugs} bugs found.")
         FUZZ_LOG.info(f"Total {self.status.n_fail_make_test} failed to make testcases.")
 
-
+# 使用hydra库定义main函数，读取配置文件，创建FuzzingLoop实例并运行
 @hydra.main(version_base=None, config_path="../config", config_name="main")
 def main(cfg: DictConfig):
     FuzzingLoop(cfg).run()
 
-
+# 如果脚本被直接运行，调用main函数
 if __name__ == "__main__":
     main()

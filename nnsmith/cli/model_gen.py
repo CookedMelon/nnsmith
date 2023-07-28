@@ -20,12 +20,13 @@ def main(cfg: DictConfig):
     # Generate a random ONNX model
     # TODO(@ganler): clean terminal outputs.
     mgen_cfg = cfg["mgen"]
-
+    # 设置随机种子
     seed = random.getrandbits(32) if mgen_cfg["seed"] is None else mgen_cfg["seed"]
 
     MGEN_LOG.info(f"Using seed {seed}")
 
     # TODO(@ganler): skip operators outside of model gen with `cfg[exclude]`
+    # 初始化模型类型和后端工厂
     model_cfg = cfg["model"]
     ModelType = Model.init(model_cfg["type"], backend_target=cfg["backend"]["target"])
     ModelType.add_seed_setter()
@@ -52,6 +53,7 @@ def main(cfg: DictConfig):
     activate_ext(opset=opset, factory=factory)
 
     tgen_begin = time.time()
+    # 通过`model_gen`使用指定操作集、方法和种子生成模型
     gen = model_gen(
         opset=opset,
         method=mgen_cfg["method"],
@@ -88,6 +90,7 @@ def main(cfg: DictConfig):
     model = ModelType.from_gir(ir)
     model.refine_weights()  # either random generated or gradient-based.
     model.set_grad_check(mgen_cfg["grad_check"])
+    # 生成模型都oracle用与评估模型输出的参考实现
     oracle = model.make_oracle()
     tmat = time.time() - tmat_begin
 
